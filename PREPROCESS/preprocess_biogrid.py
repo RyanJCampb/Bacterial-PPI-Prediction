@@ -117,6 +117,8 @@ from io import StringIO
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from itertools import combinations_with_replacement
 
+from uniprot_id_mapping import get_data_frame_from_tsv_results, get_id_mapping_results_search, submit_id_mapping, check_id_mapping_results_ready, get_id_mapping_results_link
+
 describe_help = 'python preprocess_biogrid.py filename.txt -cdhit /usr/bin/cd-hit -t intra -c2 -f -s0.6 -m pipr sprint deepfe dppi -k5'
 parser = argparse.ArgumentParser(description=describe_help)
 parser.add_argument(
@@ -355,44 +357,31 @@ def map_biogrid_to_uniprot(df_biogrid, include_unreviewed=False):
     df = df_biogrid.copy()
 
     # Query UniProt mapping
-    geneIDs = df['Entrez Gene Interactor A'].append(
-        df['Entrez Gene Interactor B']).unique()
-    geneIDs_query = str(geneIDs.tolist()).strip(
-        '[').strip(']').replace("'", "").replace(',', '')
-    url = 'https://www.uniprot.org/uploadlists/'
-    params = {
-        'from': 'P_ENTREZGENEID',
-        'to': 'ACC',
-        'format': 'tab',
-        'columns': 'id,sequence,reviewed',
-        'query': geneIDs_query,
-    }
+    geneIDs = list(map(str, df['Entrez Gene Interactor A'].append(
+        df['Entrez Gene Interactor B']).unique()))
     print('\tQuerying UniProt for mappings...')
-    response = ''
-    for x in range(0, 3):
-        try:
-            data = urllib.parse.urlencode(params)
-            data = data.encode('utf-8')
-            req = urllib.request.Request(url, data)
-            req.type = 'http'
-            with urllib.request.urlopen(req) as webresults:
-                response = webresults.read().decode('utf-8')
-        except:
-            print('\tError connecting to UniProt, trying again...')
-    if response == '':
+    results = ''
+    job_id = submit_id_mapping(
+        from_db="GeneID", to_db="UniProtKB-Swiss-Prot", ids=geneIDs
+    )
+    if check_id_mapping_results_ready(job_id):
+        link = get_id_mapping_results_link(job_id)
+        results = get_id_mapping_results_search(
+            link + '?compressed=true&fields=accession,sequence,reviewed&format=tsv')
+    if results == '':
         print('\tNo UniProt mapping results found...No dataset created.')
         return pd.DataFrame(), pd.DataFrame()
     else:
-        df_uniprot = pd.read_csv(StringIO(response), sep='\t', dtype=str)
-        entrez_list = df_uniprot.columns.tolist()[-1]
+        df_uniprot = get_data_frame_from_tsv_results(results)
+        entrez_list = df_uniprot.columns.tolist()[0]
         df_uniprot.rename(
             columns={entrez_list: 'EntrezGeneID', 'Entry': 'ProteinID'}, inplace=True)
 
         # Remove unreviewed entries
         if include_unreviewed == False:
-            df_uniprot = df_uniprot[df_uniprot['Status'] == 'reviewed']
+            df_uniprot = df_uniprot[df_uniprot['Reviewed'] == 'reviewed']
             df_uniprot.reset_index(inplace=True, drop=True)
-            df_uniprot = df_uniprot.drop(columns=['Status'])
+            df_uniprot = df_uniprot.drop(columns=['Reviewed'])
 
         # Map IDs to BioGRID dataset, remove unmapped genes, and rename columns
         mapped = df.copy()

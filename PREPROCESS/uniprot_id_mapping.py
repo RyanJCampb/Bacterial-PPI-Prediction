@@ -3,10 +3,12 @@
 # This file is a python wrapper around the ID mapping tool of Uniprot.
 # This tool is used to map IDs across various protein databases.
 
+import csv
 import re
 import time
 import json
 import zlib
+import pandas as pd
 from xml.etree import ElementTree
 from urllib.parse import urlparse, parse_qs, urlencode
 import requests
@@ -177,3 +179,8 @@ def get_id_mapping_results_stream(url):
         ) == "true" if "compressed" in query else False
     )
     return decode_results(request, file_format, compressed)
+
+
+def get_data_frame_from_tsv_results(tsv_results):
+    reader = csv.DictReader(tsv_results, delimiter="\t", quotechar='"')
+    return pd.DataFrame(list(reader))
