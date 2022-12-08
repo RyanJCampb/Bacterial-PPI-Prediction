@@ -1,0 +1,6 @@
+# Data
+DATA/
+
+# Python environments
+*_env
+*_venv
