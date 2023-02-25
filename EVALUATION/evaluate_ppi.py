@@ -50,14 +50,16 @@ parser.add_argument('-r', '--results', help='Path to directory for saving evalua
 parser.add_argument('-d', '--delta', help='Imbalance ratio as positives/total (e.g. balanced = 0.5) for estimate of performance on hypothetical imbalanced data', 
                     type=float, default=0.5)
 parser.add_argument('-n', '--name', help='Name for saving files, default basename will be results directory name', 
-                    type=str, default='')
+                    type=str, default='test')
 args = parser.parse_args()
 
 RESULTS_DIR = args.results
 if not os.path.exists(RESULTS_DIR):
     os.mkdir(RESULTS_DIR)
+'''
 if args.name == '':
     args.name = RESULTS_DIR.split('/')[-2].lower().capitalize() + '_' + args.labels.split('/')[-1].split('.')[0]
+'''
 
 # Display ratio of positives:negatives
 RATIO = '1:' + str(int((1/args.delta) - 1))
