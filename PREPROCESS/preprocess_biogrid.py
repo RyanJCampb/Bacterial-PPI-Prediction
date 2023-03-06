@@ -325,7 +325,7 @@ def map_biogrid_to_uniprot(df_biogrid, include_unreviewed=False):
     # Query UniProt mapping
     geneIDs = df['Entrez Gene Interactor A'].append(df['Entrez Gene Interactor B']).unique()
     geneIDs_query = str(geneIDs.tolist()).strip('[').strip(']').replace("'", "").replace(',', '')
-    url = 'https://www.uniprot.org/uploadlists/'
+    url = 'https://legacy.uniprot.org/uploadlists/'
     params = {
     'from': 'P_ENTREZGENEID',
     'to': 'ACC',
@@ -551,7 +551,7 @@ def generate_negative_interactions(df_pos, diff_locations=False):
 
 def get_protein_locations(proteins):
     proteins_query = str(proteins.tolist()).strip('[').strip(']').replace("'", "").replace(',', '')
-    url = 'https://www.uniprot.org/uploadlists/'
+    url = 'https://legacy.uniprot.org/uploadlists/'
     params = {
     'from': 'ACC+ID',
     'to': 'ACC',
