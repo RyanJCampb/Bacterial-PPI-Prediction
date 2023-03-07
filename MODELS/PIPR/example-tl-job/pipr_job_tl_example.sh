@@ -35,7 +35,7 @@ cd tl_model
 for i in {0..4}; do
 	CUDA_VISIBLE_DEVICES=0 &
 	python3 ../../pipr_rcnn.py \
-		--load_model ../pretrained_model/Models/Homo_sapiens_4-4-215_ID_9606_PIPR_interactions_PIPR.model \
+		--load_model ../pretrained_model/Models/Homo_sapiens_4-4-215_ID_9606_train-"$i"_PIPR.model \
 		--trainable_layers 5 \
 		--save_model \
 		--transfer_learning \
