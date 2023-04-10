@@ -45,75 +45,109 @@ args = parser.parse_args()
 class Labels(object):
     # For sifting through labelled PPI data
     def __init__(self, df_labels):
-        self.all = df_labels.copy()
+        self.all = df_labels
         self.positive = self.all[self.all[self.all.columns[-1]] == 1].reset_index(drop=True)
         self.negative = self.all[self.all[self.all.columns[-1]] == 0].reset_index(drop=True)
+
     def get_ppi(self, protein):
         return get_protein_ppi(self.labels, protein)
 
+
 # If no knee found, manually assign knee to last ranked PPI
 class No_Knee(object):
-    def __init__(self, scores):
+    def __init__(self, scores: pd.DataFrame):
         self.knee = scores.index.tolist()[-1]
         self.knee_y = scores.iloc[self.knee][scores.columns[-1]]
         self.y = np.array(scores.copy()[scores.columns[-1]])
 
+
 # If no elbow found, manually assign elbow to first rank PPI
 class No_Elbow(object):
-    def __init__(self, scores):
+    def __init__(self, scores: pd.DataFrame):
         self.knee = scores.index.tolist()[0]
         self.knee_y = scores.iloc[self.knee][scores.columns[-1]]
         self.y = np.array(scores.copy()[scores.columns[-1]])
 
+
 class OneToAll(object):
-    def __init__(self, df_scores, df_labels, proteinID, sens=5, deg=7, on=True):
-        self.scores = df_scores.copy()
-        self.labels = Labels(df_labels.copy())
+    def __init__(self, df_scores: pd.DataFrame, df_labels: pd.DataFrame, proteinID, sens=5, deg=7, on=True):
+        self.scores = df_scores
+        self.labels = Labels(df_labels)
         self.proteins = self.scores[self.scores.columns[0]].append(self.scores[self.scores.columns[1]]).unique()
         self.ID = proteinID
         self.sensitivity=sens
         self.degree=deg
         self.online=on
+        self.no_knee = 0
 
         # # Basic local stats of scores
-        self.scores_mean = np.mean(self.scores[self.scores.columns[-1]])
-        self.scores_median = np.median(self.scores[self.scores.columns[-1]])
-        self.scores_std = np.std(self.scores[self.scores.columns[-1]])
+        predictions = self.scores[self.scores.columns[-1]]
+        self.scores_mean = np.mean(predictions)
+        self.scores_median = np.median(predictions)
+        self.scores_std = np.std(predictions)
         
-        self.ranks = self.scores[self.scores.columns[-1]].rank(ascending=False)
-        self.percentiles = self.scores[self.scores.columns[-1]].rank(pct=True)
+        self.ranks = predictions.rank(ascending=False)
+        self.percentiles = predictions.rank(pct=True)
         
         # Local knee/elbow thresholds, knee is 'concave' elbow is 'convex'
-        if not self.scores[self.scores.columns[-1]].any():
+        if not predictions.any():
             # When all scores are 0, no knee/elbow possible
             self.knee = No_Knee(self.scores)
             self.elbow = No_Elbow(self.scores)
         else:
+            x = self.scores.index.tolist()
+            y = predictions #.fillna(0.0) # Fill w/ 0.0 to avoid +-Inf/NaN
             try:
                 # Adjust sensitivity until knee found to avoid None value
                 for s in range(sens, -1, -1):
-                    self.knee = KneeLocator(self.scores.index.tolist(), self.scores[self.scores.columns[-1]], interp_method='polynomial', curve='concave', direction='decreasing', online=on, S=s, polynomial_degree=deg)
+                    
+                    self.knee = KneeLocator(
+                        x, y,
+                        interp_method='polynomial',
+                        curve='concave',
+                        direction='decreasing',
+                        online=on,
+                        S=s,
+                        polynomial_degree=deg
+                    )
+
                     if self.knee.knee:
                         self.sensitivity=s
                         break
-            except:
+
+            except Exception:
                 # If still no knee found, manually assign knee to last rank PPI
-                if self.knee == None:
+                if not hasattr(self, 'knee'):
                     self.knee = No_Knee(self.scores)
+                elif self.knee.knee == None:
+                    self.knee = No_Knee(self.scores)
+
             try:
                 # Adjust sensitivity until elbow found to avoid None value
                 for s in range(sens, -1, -1):
-                    self.elbow = KneeLocator(self.scores.index.tolist(), self.scores[self.scores.columns[-1]], interp_method='polynomial', curve='convex', direction='decreasing', online=on, S=s, polynomial_degree=deg)
+                    self.elbow = KneeLocator(
+                        x, y,
+                        interp_method='polynomial',
+                        curve='convex',
+                        direction='decreasing',
+                        online=on,
+                        S=s,
+                        polynomial_degree=deg
+                    )
+
                     if self.elbow.knee:
                         self.sensitivity=s
                         break
             except:
                 # If still no elbow found, manually assign elbow to first rank PPI
-                if self.elbow == None:
+                if not hasattr(self, 'elbow'): # If it fails on the first pass
                     self.elbow = No_Elbow(self.scores)
-        if self.knee == None:
+                elif self.elbow.knee == None:
+                    self.elbow = No_Elbow(self.scores)
+
+        if self.knee.knee == None:
             self.knee = No_Knee(self.scores)
-        if self.elbow == None:
+        if self.elbow.knee == None:
             self.elbow = No_Elbow(self.scores)
         # Swap if poor elbow/knee detections
         if self.knee.knee < self.elbow.knee:
@@ -136,10 +170,12 @@ class OneToAll(object):
     def get_rank(self, protein):
         df = self.get_ppi(protein)
         try:
-            rank = self.scores.loc[(self.scores[self.scores.columns[0]] == df.iloc[0][df.columns[0]]) & (self.scores[self.scores.columns[1]] == df.iloc[0][df.columns[1]])].index[0]
+            rank = self.scores.loc[(self.scores[self.scores.columns[0]] == df.iloc[0][df.columns[0]]) &
+                                    (self.scores[self.scores.columns[1]] == df.iloc[0][df.columns[1]])].index[0]
         except IndexError:
             try:
-                rank = self.scores.loc[(self.scores[self.scores.columns[1]] == df.iloc[0][df.columns[0]]) & (self.scores[self.scores.columns[0]] == df.iloc[0][df.columns[1]])].index[0]
+                rank = self.scores.loc[(self.scores[self.scores.columns[1]] == df.iloc[0][df.columns[0]]) &
+                                        (self.scores[self.scores.columns[0]] == df.iloc[0][df.columns[1]])].index[0]
             except IndexError:
                 rank = np.nan
         return rank
@@ -221,38 +257,8 @@ class RP_AB(object):
     # df_labels contains 3 columns as <proteinA> <proteinB> <label>
     # proteinA and protein B are each a string of the protein IDs for reciprocal perspectives
     # sens, deg, and on are used for finding the elbow/knee, see kneed.KneeLocator for info
-    def __init__(self, df_predictions, df_labels, proteinA, proteinB, sens=5, deg=7, on=True):
-        # RP global attributes
-        # Scores and labels
-        self.scores = df_predictions.copy()
-        self.labels = Labels(df_labels)
-        
-        # Attributes for KneeLocator
-        self.sensitivity=sens
-        self.degree=deg
-        self.online=on
 
-        # Basic global stats of scores
-        self.global_baseline_mean = np.mean(df_predictions[df_predictions.columns[-1]])
-        self.global_baseline_median = np.median(df_predictions[df_predictions.columns[-1]])
-        self.global_baseline_std = np.std(df_predictions[df_predictions.columns[-1]])
-        
-        # RP local attributes
-        # Get scores relevant to proteinA and proteinB
-        self.scores_A = get_protein_ppi(df_predictions, proteinA)
-        self.scores_B = get_protein_ppi(df_predictions, proteinB)
-        # Get labels relevant to proteinA and proteinB
-        self.labels_A = get_protein_ppi(df_labels, proteinA)
-        self.labels_B = get_protein_ppi(df_labels, proteinB)
-        
-        # Create attributes for each one-to-all PPIs, ignore warnings from KneeLocator in choosing params
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            self.ProteinA = OneToAll(self.scores_A, self.labels_A, proteinA, sens=self.sensitivity, deg=self.degree, on=self.online)
-            self.ProteinB = OneToAll(self.scores_B, self.labels_B, proteinB, sens=self.sensitivity, deg=self.degree, on=self.online)
-    
-    def get_rp_features(self):
-        columns = ['Protein_A', 'Protein_B', 
+    COLUMNS = ['Protein_A', 'Protein_B', 
                    'Rank_A_in_B', 'Rank_B_in_A', 'Score_A_in_B', 'Score_B_in_A',
                    'NaRRO', 'ARRO', 'NoRRO_A', 'NoRRO_B', 'NoRRO',
                    'Rank_LocalCutoff_A_elbow', 'Rank_LocalCutoff_B_elbow',
@@ -264,16 +270,49 @@ class RP_AB(object):
                    'Above_Global_Mean', 'Above_Global_Median',
                    'FD_A_elbow', 'FD_B_elbow', 'FD_A_knee', 'FD_B_knee'
                    ]
+
+    def __init__(self, df_predictions: pd.DataFrame, df_labels: pd.DataFrame, proteinA: str, proteinB: str, sens=5, deg=7, on=True):
+        # RP global attributes
+        # Scores and labels
+        
+        # Attributes for KneeLocator
+        self.sensitivity=sens
+        self.degree=deg
+        self.online=on
+
+        # Basic global stats of scores
+        predictions = df_predictions[df_predictions.columns[-1]]
+        self.global_baseline_mean = np.mean(predictions)
+        self.global_baseline_median = np.median(predictions)
+        self.global_baseline_std = np.std(predictions)
+        
+        # RP local attributes
+        # Get scores relevant to proteinA and proteinB
+        self.scores_A = get_protein_ppi(df_predictions, proteinA)
+        self.scores_B = get_protein_ppi(df_predictions, proteinB)
+        # Get labels relevant to proteinA and proteinB
+        self.labels_A = get_protein_ppi(df_labels, proteinA)
+        self.labels_B = get_protein_ppi(df_labels, proteinB)
+        
+        # Create attributes for each one-to-all PPIs, ignore warnings from KneeLocator in choosing params
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self.ProteinA = OneToAll(self.scores_A, self.labels_A, proteinA, sens=self.sensitivity, deg=self.degree, on=self.online)
+            self.ProteinB = OneToAll(self.scores_B, self.labels_B, proteinB, sens=self.sensitivity, deg=self.degree, on=self.online)
+    
+    def get_rp_features(self):
+        
         # RP features
         rank_A_in_B = self.ProteinB.get_rank(self.ProteinA.ID)
         rank_B_in_A = self.ProteinA.get_rank(self.ProteinB.ID)
         score_A_in_B = self.ProteinB.get_score(self.ProteinA.ID)
         score_B_in_A = self.ProteinA.get_score(self.ProteinB.ID)
-        narro = 1.0 / ((rank_A_in_B+1) * (rank_B_in_A+1))
-        norro_A = 1.0 / ((rank_A_in_B+1)/len(self.ProteinB.proteins))
-        norro_B = 1.0 / ((rank_B_in_A+1)/len(self.ProteinA.proteins))
+
+        narro = 1.0 / ((rank_A_in_B + 1) * (rank_B_in_A + 1))
+        norro_A = 1.0 / ((rank_A_in_B + 1) / len(self.ProteinB.proteins))
+        norro_B = 1.0 / ((rank_B_in_A + 1) / len(self.ProteinA.proteins))
         norro = norro_A * norro_B
-        arro = 1.0 / ((rank_A_in_B+1)/len(self.ProteinB.proteins) * (rank_B_in_A+1)/len(self.ProteinA.proteins))
+        arro = 1.0 / ((rank_A_in_B + 1) / len(self.ProteinB.proteins) * (rank_B_in_A + 1) / len(self.ProteinA.proteins))
 
         # Rank and score of local cutoff (elbow)
         rank_local_cutoff_A_elbow = self.ProteinA.elbow.knee
@@ -287,10 +326,10 @@ class RP_AB(object):
         score_local_cutoff_B_knee = self.ProteinB.knee.y[self.ProteinB.knee.knee]
         
         # Binary value indicating if rank of PPI is above rank of local elbow/knee
-        rank_AB_above_local_A_elbow = int(self.ProteinA.get_rank(self.ProteinB.ID) < self.ProteinA.elbow.knee)
-        rank_BA_above_local_B_elbow = int(self.ProteinB.get_rank(self.ProteinA.ID) < self.ProteinB.elbow.knee)
-        rank_AB_above_local_A_knee = int(self.ProteinA.get_rank(self.ProteinB.ID) < self.ProteinA.knee.knee)
-        rank_BA_above_local_B_knee = int(self.ProteinB.get_rank(self.ProteinA.ID) < self.ProteinB.knee.knee)
+        rank_AB_above_local_A_elbow = int(rank_B_in_A < self.ProteinA.elbow.knee)
+        rank_BA_above_local_B_elbow = int(rank_A_in_B < self.ProteinB.elbow.knee)
+        rank_AB_above_local_A_knee = int(rank_B_in_A < self.ProteinA.knee.knee)
+        rank_BA_above_local_B_knee = int(rank_A_in_B < self.ProteinB.knee.knee)
         
         # Binary value indicating if both RP PPI scored are above global mean/median score
         above_global_mean = int(score_A_in_B > self.global_baseline_mean and score_B_in_A > self.global_baseline_mean)
@@ -299,10 +338,22 @@ class RP_AB(object):
         # Fold differences (negative value indicates below local cutoff, positive value indicates above local cutoff)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
-            fd_A_elbow = (self.ProteinA.get_score(self.ProteinB.ID) - score_local_cutoff_A_elbow) / score_local_cutoff_A_elbow if not np.isinf((self.ProteinA.get_score(self.ProteinB.ID) - score_local_cutoff_A_elbow) / score_local_cutoff_A_elbow) and not np.isnan((self.ProteinA.get_score(self.ProteinB.ID) - score_local_cutoff_A_elbow) / score_local_cutoff_A_elbow) else 0
-            fd_B_elbow = (self.ProteinB.get_score(self.ProteinA.ID) - score_local_cutoff_B_elbow) / score_local_cutoff_B_elbow if not np.isinf((self.ProteinB.get_score(self.ProteinA.ID) - score_local_cutoff_B_elbow) / score_local_cutoff_B_elbow) and not np.isnan((self.ProteinB.get_score(self.ProteinA.ID) - score_local_cutoff_B_elbow) / score_local_cutoff_B_elbow) else 0
-            fd_A_knee = (self.ProteinA.get_score(self.ProteinB.ID) - score_local_cutoff_A_knee) / score_local_cutoff_A_knee if not np.isinf((self.ProteinA.get_score(self.ProteinB.ID) - score_local_cutoff_A_knee) / score_local_cutoff_A_knee) and not np.isnan((self.ProteinA.get_score(self.ProteinB.ID) - score_local_cutoff_A_knee) / score_local_cutoff_A_knee)  else 0
-            fd_B_knee = (self.ProteinB.get_score(self.ProteinA.ID) - score_local_cutoff_B_knee) / score_local_cutoff_B_knee if not np.isinf((self.ProteinB.get_score(self.ProteinA.ID) - score_local_cutoff_B_knee) / score_local_cutoff_B_knee) and not np.isnan((self.ProteinB.get_score(self.ProteinA.ID) - score_local_cutoff_B_knee) / score_local_cutoff_B_knee) else 0
+            fd_A_elbow = (score_B_in_A - score_local_cutoff_A_elbow) / \
+                score_local_cutoff_A_elbow if not np.isinf((score_B_in_A - score_local_cutoff_A_elbow) /
+                score_local_cutoff_A_elbow) and not np.isnan((score_B_in_A - score_local_cutoff_A_elbow) /
+                score_local_cutoff_A_elbow) else 0
+            fd_B_elbow = (score_A_in_B - score_local_cutoff_B_elbow) / \
+                score_local_cutoff_B_elbow if not np.isinf((score_A_in_B - score_local_cutoff_B_elbow) /
+                score_local_cutoff_B_elbow) and not np.isnan((score_A_in_B - score_local_cutoff_B_elbow) /
+                score_local_cutoff_B_elbow) else 0
+            fd_A_knee = (score_B_in_A - score_local_cutoff_A_knee) / \
+                score_local_cutoff_A_knee if not np.isinf((score_B_in_A - score_local_cutoff_A_knee) /
+                score_local_cutoff_A_knee) and not np.isnan((score_B_in_A - score_local_cutoff_A_knee) /
+                score_local_cutoff_A_knee)  else 0
+            fd_B_knee = (score_A_in_B - score_local_cutoff_B_knee) / \
+                score_local_cutoff_B_knee if not np.isinf((score_A_in_B - score_local_cutoff_B_knee) /
+                score_local_cutoff_B_knee) and not np.isnan((score_A_in_B - score_local_cutoff_B_knee) /
+                score_local_cutoff_B_knee) else 0
             
         rp_features = pd.DataFrame(np.array([[self.ProteinA.ID, self.ProteinB.ID,
                        rank_A_in_B, rank_B_in_A, score_A_in_B, score_B_in_A,
@@ -316,7 +367,7 @@ class RP_AB(object):
                        above_global_mean, above_global_median,
                        fd_A_elbow, fd_B_elbow, fd_A_knee, fd_B_knee,
                        ]]),
-            columns=columns)
+            columns=self.COLUMNS)
         return rp_features
     
     def plot(self):
@@ -364,18 +415,16 @@ class RP_AB(object):
         plt.legend(prop={'size': 8})
         plt.show()
 
-def create_RP_dataset(predictions, labels):
-    pred = predictions.copy()
-    lab = labels.copy()
+def create_RP_dataset(predictions: pd.DataFrame, labels: pd.DataFrame):
     start = time.time()
     df = pd.DataFrame()
-    for i in tqdm.tqdm(range(0, lab.shape[0]), total=lab.shape[0]):
-        rp = RP_AB(pred, lab, lab.iloc[i][0], lab.iloc[i][1])
-        df = df.append(rp.get_rp_features())
+    for i in tqdm.tqdm(range(0, labels.shape[0]), total=labels.shape[0]):
+        rp = RP_AB(predictions, labels, labels.iloc[i][0], labels.iloc[i][1])
+        df: pd.DataFrame = df.append(rp.get_rp_features())
         df.reset_index(drop=True, inplace=True)
     print('\n\tTime:', round(time.time() - start, 2), 'seconds')
-    lab.rename(columns={0: 'Protein_A', 1:'Protein_B', 2:'label'}, inplace=True)
-    df = df.merge(lab, on=['Protein_A', 'Protein_B'])
+    labels.rename(columns={0: 'Protein_A', 1:'Protein_B', 2:'label'}, inplace=True)
+    df = df.merge(labels, on=['Protein_A', 'Protein_B'])
     return df
 
 # Running parallel processes to speed up RP feature extraction
@@ -397,15 +446,16 @@ def create_RP_dataset_parallel(predictions, labels, processors=round(os.cpu_coun
     pool.join()
     return df
 
-def get_protein_ppi(df_in, proteinID):
-    df = df_in.copy()
+def get_protein_ppi(df_in: pd.DataFrame, proteinID: str):
     # Return df only for PPIs containing proteinID and sort descending
-    df = df[(df[df.columns[0]] == proteinID) | (df[df.columns[1]] == proteinID)]
+    df = (df_in[(df_in[df_in.columns[0]] == proteinID) |
+                (df_in[df_in.columns[1]] == proteinID)]).copy()
     df.sort_values(by=df.columns[-1], ascending=False, inplace=True)
     df.reset_index(drop=True, inplace=True)
+
     return df
 
-def get_matching_pairs(df_1, df_2):
+def get_matching_pairs(df_1: pd.DataFrame, df_2: pd.DataFrame):
     # Get matches using PPI ordering of smaller df
     if df_1.shape > df_2.shape:
         df_test = df_1.copy()
@@ -424,6 +474,8 @@ def get_matching_pairs(df_1, df_2):
     # Merge to match all PPIs found between df
     matches = df_train.merge(df, on=[df.columns[0], df.columns[1]]).drop_duplicates(subset=[df.columns[0], df.columns[1]])
     matches.reset_index(drop=True, inplace=True)
+
+    
     # Returns as <ProteinA> <ProteinB> <label> <score>
     return matches
 
@@ -431,6 +483,8 @@ def labels_verified(labels, predictions):
     matches = get_matching_pairs(labels, predictions)
     if labels.shape[0] != matches.shape[0]:
         print('%s/%s labelled pairs found in predictions...unable to extract RP features for given labels.'%(matches.shape[0], labels.shape[0]))
+        unmatched = pd.concat([matches, labels]).drop_duplicates(subset=[labels.columns[0], labels.columns[1]], keep=False)
+        print(unmatched)
         return False
     return True
 
@@ -472,7 +526,7 @@ def prep_df(df_in):
 if __name__ == '__main__':
     
     if not os.path.exists(args.results):
-        os.mkdir(args.results)
+        os.makedirs(args.results)
     start = time.time()
     print('Reading labels...')
     labels = pd.read_csv(args.labels, delim_whitespace=True, header=None)
@@ -499,5 +553,5 @@ if __name__ == '__main__':
         print('Saved and done.')
     else:
         print('Labels missing from predictions')
-        exit()
+        exit(1)
     print('\n\tTime:', round(time.time() - start, 2), 'seconds')
