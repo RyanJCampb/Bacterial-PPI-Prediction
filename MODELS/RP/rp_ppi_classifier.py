@@ -28,11 +28,9 @@ import os, argparse, time
 import pandas as pd
 import numpy as np
 from sklearn import metrics
-#from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-#import xgboost as xgb
+
 from lightgbm.sklearn import LGBMClassifier
 from sklearn.svm import SVC
-from lightgbm import plot_importance
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -44,7 +42,7 @@ parser = argparse.ArgumentParser(description=describe_help)
 parser.add_argument('-f', '--files', help='Filepath(s) of dataset(s) (.tsv file) if cross-validation', type=str, nargs='+')
 parser.add_argument('-train', '--train', help='Filepath(s) of training dataset(s) (.tsv file) to train model', type=str)
 parser.add_argument('-test', '--test', help='Filepath(s) of testing dataset(s) (.tsv file) to make predictions', type=str)
-parser.add_argument('-k', '--k_folds', help='Number of k-folds when cross-validating (int)', type=int, nargs=1, required=False, default=10)
+parser.add_argument('-k', '--k_folds', help='Number of k-folds when cross-validating (int)', type=int, required=False, default=10)
 parser.add_argument('-d', '--delta', help='Imbalance ratio as positives/total (e.g. balanced = 0.5)', type=float, nargs=1, required=False, default=0.5)
 parser.add_argument('-c', '--cme', help='Perform a combination of multiple experts (combine datasets provided in -files)', action='store_true', default=False)
 parser.add_argument('-r', '--results', help='Path to directory for saving prediction results', type=str, default=os.getcwd()+'/RESULTS/')
@@ -116,7 +114,7 @@ def get_matching_pairs(df_1, df_2):
 if __name__ == '__main__':
     
     if not os.path.exists(args.results):
-        os.mkdir(args.results)
+        os.makedirs(args.results)
     
     # ================== FOR SINGLE TRAIN/TEST RUNS ==================
     if FILES == None and args.train != None and args.test != None:
@@ -131,14 +129,18 @@ if __name__ == '__main__':
         df_test = pd.read_csv(args.test, delim_whitespace=True)
         df_test.replace(to_replace=np.nan, value=0, inplace=True)
         
+        if df_train.empty or df_test.empty:
+            raise ValueError('DataFrames opened empty')
+
         # Define data and labels
         pairs_train = np.array(df_train[df_train.columns[0:2]])
         X_train = np.array(df_train[df_train.columns[2:-1]])
         y_train = np.array(df_train[df_train.columns[-1]])
+
         pairs_test = np.array(df_test[df_test.columns[0:2]])
         X_test = np.array(df_test[df_test.columns[2:-1]])
         y_test = np.array(df_test[df_test.columns[-1]])
-        
+
         # Filename for saving predictions
         if args.name == '':
             save_name = args.test.split('.')[0].split('/')[-1]
@@ -294,7 +296,7 @@ if __name__ == '__main__':
         print('Performing CME...')
         # Load first file
         df_cme = pd.read_csv(FILES[0], delim_whitespace=True)
-        cme_name = FILES[0].split('.')[0].split('/')[-1].split('_')
+        
         # Append remaining files
         for f in range(1, len(FILES)):
             # Read files
@@ -303,10 +305,11 @@ if __name__ == '__main__':
             df_cme = df_cme.merge(df, on=[df.columns[0], df.columns[1]])
             df_cme.drop(columns=['label_x'], inplace=True)
             df_cme.rename(columns={'label_y': 'label'}, inplace=True)
-            [cme_name.append(s) for s in FILES[f].split('.')[0].split('/')[-1].split('_') if s not in cme_name]
-        #cme_name.sort()
-        cme_name = '_'.join(i for i in cme_name)
-        FILES = [cme_name]
+
+        if df_cme.empty:
+            raise ValueError('Combined DataFrame empty, error occurred')
+
+        cme_name = ['_'.join([path.split('/')[-1].split('.')[0].split('_')[-1] for path in FILES])]
         if args.name == '':
             save_name = cme_name
         else:
