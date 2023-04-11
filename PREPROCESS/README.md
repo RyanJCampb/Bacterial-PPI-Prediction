@@ -20,7 +20,7 @@ ___
     Builds balanced protein-protein interaction (PPI) datasets from BioGRID (.tab2 or .tab3) data.
     
     Requires:
-        - BioGRID .tab.txt file (for extracting protein interactions)
+        - BioGRID .tab.txt (.tab3.txt) file (for extracting protein interactions)
         - CD-HIT software installed (for removing homologous proteins)
         - an internet connection (for accessing the UniProt database)
     
@@ -87,7 +87,7 @@ ___
                 -k <int> create k-fold subsets of data for use in cross-validation
                     5 (DEFAULT): saves data subsets under CV_SET/ including formatted data as per -m option
                     0 or 1: does not create k-fold subsets
-                -a <flag> generates all-to-all PPIs, positively labelled, for proteins in the final dataset (BE MINDFUL OF HARDDRIVE/STORAGE)
+                -a <flag> generates all-to-all PPIs, positively labelled, for proteins in the final dataset (used for creating RP datasets) (BE MINDFUL OF HARDDRIVE/STORAGE)
                 -pm <int> creates number of Park&Marcotte sets from final dataset for evaluations, default is 0)
                
 # HPIDB Dataset Preprocessing
