@@ -1,9 +1,11 @@
 # Data
 DATA/
+TOOLS/
 
 # Python environments
-*_env
-*_venv
+env/
+*_env/
+*_venv/
 
 # Python
 __pycache__
