@@ -14,7 +14,7 @@ module load python/3.6
 
 source ../PIPR_env/bin/activate
 
-# Train on human data and save
+# Base model
 mkdir -p pretrained_model
 cp -r ../embeddings/ pretrained_model/
 cd pretrained_model
@@ -45,7 +45,7 @@ for i in {0..4}; do
 done
 cd ..
 
-# Finetune
+# Finetuned Model
 mkdir -p finetuned_model
 cp -r ../embeddings/ finetuned_model/
 cd finetuned_model
