@@ -68,10 +68,12 @@ parser.add_argument('-b', '--batch_size', help='Batch size (int)', type=int, def
 parser.add_argument('-e', '--epochs', help='Epochs (int)', type=int, default=100)
 parser.add_argument('-learning_rate', '--learning_rate', help='Learning rate (float)', type=float, default=0.001)
 parser.add_argument('-a', '--seq_size', help='Amino acids/sequence length (int)', type=int, default=2000)
-parser.add_argument('-save', '--saveModel', help='Save model', action='store_true', default=False)
-parser.add_argument('-load','--loadModel', help='Path to pre-trained model', type=str)
+parser.add_argument('-save', '--save_model', help='Save model', action='store_true', default=False)
+parser.add_argument('-load','--load_model', help='Path to pre-trained model', type=str)
 parser.add_argument('-c', '--cpu', dest='cpu', help='Use only CPU', action='store_true', default=False)
 parser.add_argument('-k', '--k_folds', help='Number of k-folds when cross-validating (int)', type=int, default=5)
+parser.add_argument('-tl', '--transfer_learning', help="Enable transfer learning, will retrain the model with provided data", action='store_true', default=False)
+parser.add_argument('-t', '--trainable_layers', help="Number of final layers to keep unfrozen, for transfer learning", type=int, default=0)
 args = parser.parse_args()
 
 # Set defaults for command-line arguments
@@ -80,7 +82,7 @@ use_emb = args.mbedding
 hidden_dim = args.dimensions
 n_epochs = args.epochs
 SEQ_SIZE = args.seq_size
-pretrained = args.loadModel
+pretrained = args.load_model
 K_FOLDS = args.k_folds
 
 TRAIN_FILE = args.train
@@ -102,7 +104,7 @@ SEQ2T = s2t(EMB_FILES[use_emb])
 
 print("\n---Using the following---\nSequences File: {}\nTraining File: {}\nTesting File: {}\nResults File: {}".format(ID2SEQ_FILE, TRAIN_FILE, TEST_FILE, rst_file))
 print("Label index: {}\nEmbedding: {} - {}\nHidden Dimensions: {}\nEpochs: {}\n".format(label_index, use_emb, EMB_FILES[use_emb], hidden_dim, n_epochs))
-print('Save model: {}\nLoad model: {}'.format(args.saveModel, pretrained))
+print('Save model: {}\nLoad model: {}'.format(args.save_model, pretrained))
 DIM = SEQ2T.dim
 #SEQ_SIZE = 2000
 CLASS_MAP = {'0':1,'1':0}
@@ -217,7 +219,18 @@ def build_model():
     x = LeakyReLU(alpha=0.3)(x)
     main_output = Dense(2, activation='softmax')(x)
     merge_model = Model(inputs=[seq_input1, seq_input2], outputs=[main_output])
+    print(merge_model.summary)
     return merge_model
+
+def set_trainable_layers(merge_model: Model, no_of_layers: int):
+    # Set the number of final layers that should be trainable
+    for i in range(0, len(merge_model.layers) - no_of_layers):
+        merge_model.layers[i].trainable = False
+
+def unset_trainable_layers(merge_model: Model, no_of_layers: int):
+    # Unset the number of final layers that should be trainable
+    for i in range(0, len(merge_model.layers) - no_of_layers):
+        merge_model.layers[i].trainable = True
 
 def get_traintest_split(class_labels, train_length):
 
@@ -369,15 +382,27 @@ if __name__ == "__main__":
         
         if not CROSS_VALIDATE and pretrained != None:
             merge_model = pickle.load(open(pretrained, 'rb'))
+            if args.trainable_layers != 0:
+                set_trainable_layers(merge_model, args.trainable_layers)
+            if args.transfer_learning:
+                # Set learning rate, compile and train model
+                adam = Adam(lr=args.learning_rate, amsgrad=True, epsilon=1e-6)
+                rms = RMSprop(lr=args.learning_rate)
+                merge_model.compile(optimizer=rms, loss='categorical_crossentropy', metrics=['accuracy'])
+                hist = merge_model.fit([seq_tensor[seq_index1[train]], seq_tensor[seq_index2[train]]], class_labels[train], batch_size=batch_size1, epochs=n_epochs)
         else:
             merge_model = None
             merge_model = build_model()
+            
+            # Set learning rate, compile and train model
             adam = Adam(lr=args.learning_rate, amsgrad=True, epsilon=1e-6)
             rms = RMSprop(lr=args.learning_rate)
             merge_model.compile(optimizer=rms, loss='categorical_crossentropy', metrics=['accuracy'])
             hist = merge_model.fit([seq_tensor[seq_index1[train]], seq_tensor[seq_index2[train]]], class_labels[train], batch_size=batch_size1, epochs=n_epochs)
-            
-        if not CROSS_VALIDATE and args.saveModel:
+
+        if not CROSS_VALIDATE and args.save_model:
+            if args.trainable_layers != 0:
+                unset_trainable_layers(merge_model, args.trainable_layers)
             pickle.dump(merge_model, open(os.getcwd()+'/Models/' + TRAIN_FILE.split('/')[-1].replace('.tsv', '_PIPR.model'), 'wb'))
             
         pred = merge_model.predict([seq_tensor[seq_index1[test]], seq_tensor[seq_index2[test]]])

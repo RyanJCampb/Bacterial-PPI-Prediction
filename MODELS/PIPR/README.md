@@ -28,6 +28,23 @@ Test data must be in the same format as train data.
 <i>Note 2: Make sure embeddings/ is in the same directory as pipr_rcnn.py</i>  
 <i>Note 3: -c or --cpu option will not run the model</i>  
 
+### Transfer Learning:
+
+To perform transfer learning on PIPR from human to e. coli, follow these steps:
+
+```bash
+# Create new model, train on human data and save
+set CUDA_VISIBLE_DEVICES=0 & python3 pipr_rcnn.py --save_model human_all_sequences.fasta human_train_data.tsv human_test_data.tsv
+
+# Load human trained model, freeze last few layers, train on ecoli data, unfreeze and save
+set CUDA_VISIBLE_DEVICES=0 & python3 pipr_rcnn.py --load_model saved_human.model --trainable_layers 5 --transfer_learning --save_model ecoli_all_sequences.fasta ecoli_train_data.tsv ecoli_test_data.tsv
+
+# Finetune ecoli model by retraining with all layers unfrozen using ecoli data and low learning rate, then save
+set CUDA_VISIBLE_DEVICES=0 & python3 pipr_rcnn.py --load_model saved_ecoli.model --learning_rate 1e-5 --transfer_learning --save_model ecoli_all_sequences.fasta ecoli_train_data.tsv ecoli_test_data.tsv
+```
+
+You can find an example TL script that runs TL on 5-fold CV datasets which can be run on Compute Canada here [`example-tl-job/pipr_job_tl_example.sh`](example-tl-job/pipr_job_tl_example.sh)
+
 ### Requirements:
 python 2.7 or 3.6  
 Tensorflow 1.7 (with GPU support)  
