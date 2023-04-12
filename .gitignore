@@ -5,6 +5,7 @@ TOOLS/
 # Python environments
 *_env
 *_venv
+*_ENV
 
 # Python
 __pycache__
